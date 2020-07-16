@@ -5,6 +5,12 @@
 npm install
 ```
 
+rename(or copy) `.env.example` to `.env` and set API KEY.
+
+```
+VUE_APP_SKYWAY_API_KEY=YOUR_API_KEY
+```
+
 ### Compiles and hot-reloads for development
 ```
 npm run serve
