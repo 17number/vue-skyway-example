@@ -1,3 +1,4 @@
+<!-- reference: https://github.com/skyway/skyway-js-sdk/tree/master/examples/p2p-media  -->
 <template>
   <div class="p2p">
     <h2>P2P (example)</h2>
