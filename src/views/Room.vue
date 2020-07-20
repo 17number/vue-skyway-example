@@ -182,6 +182,8 @@ export default {
       this.room = this.peer.joinRoom(this.roomName, {
         mode: this.mode,
         stream: this.stream,
+        videoReceiveEnabled: this.selectedVideo === null,
+        audioReceiveEnabled: this.selectedAudio === null,
       });
       this.setEventListeners();
     },
