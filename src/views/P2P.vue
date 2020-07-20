@@ -108,6 +108,7 @@ export default {
         this.stream = await navigator?.mediaDevices?.getUserMedia(constraints);
       } catch (error) {
         console.error('mediaDevice.getUserMedia() error:', error);
+        this.stream = null;
         return;
       }
 
@@ -130,9 +131,14 @@ export default {
       }
       this.stream = null;
     },
-    resetVideo() {
-      this.closeVideo();
-      this.initVideo();
+    async resetVideo() {
+      if (this.mediaConnection) {
+        await this.initVideo();
+        this.replaceStream();
+      } else {
+        this.closeVideo();
+        this.initVideo();
+      }
     },
     initPeer() {
       this.peer = new Peer({
@@ -192,6 +198,10 @@ export default {
       // https://webrtc.ecl.ntt.com/api-reference/javascript.html#connect-peerid-options
       this.dataConnection = this.peer.connect(this.destId);
       this.setEventListenerToDataConnection();
+    },
+    replaceStream() {
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#replacestream-stream
+      this.mediaConnection?.replaceStream(this.stream);
     },
     sendMessage() {
       if (!this.dataConnection || !this.message) {
