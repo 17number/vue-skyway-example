@@ -28,6 +28,15 @@
           <option :value="audio.deviceId" v-for="(audio, i) in audios" :key="i">{{ audio.label }}</option>
         </select>
       </div>
+      <!-- ミュート -->
+      <div>
+        <div>
+          <label><input type="checkbox" v-model="mute.local.video" @change="muteMedia">Video を Off</label>
+        </div>
+        <div>
+          <label><input type="checkbox" v-model="mute.local.audio" @change="muteMedia">Audio を Off</label>
+        </div>
+      </div>
       <p>My Peer ID: {{ srcId }}</p>
     </div>
     <div id="dest">
@@ -49,6 +58,15 @@
         :srcObject.prop="remoteStream"
         v-if="remoteStream"
       />
+      <!-- ミュート -->
+      <div v-if="remoteStream">
+        <div>
+          <label><input type="checkbox" v-model="mute.remote.video" @change="muteMedia">Video を Off</label>
+        </div>
+        <div>
+          <label><input type="checkbox" v-model="mute.remote.audio" @change="muteMedia">Audio を Off</label>
+        </div>
+      </div>
     </div>
     <div id="messages">
       <div v-if="dataConnection">
@@ -81,6 +99,10 @@ export default {
       selectedAudio: null,
       stream: null,
       remoteStream: null,
+      mute: {
+        local: { video: false, audio: false },
+        remote: { video: false, audio: false },
+      },
       srcId: null,
       destId: null,
       mediaConnection: null,
@@ -202,6 +224,17 @@ export default {
     replaceStream() {
       // https://webrtc.ecl.ntt.com/api-reference/javascript.html#replacestream-stream
       this.mediaConnection?.replaceStream(this.stream);
+    },
+    // https://webrtc.ecl.ntt.com/api-reference/javascript.html#mediastream%E3%82%92%E3%83%9F%E3%83%A5%E3%83%BC%E3%83%88%E3%81%99%E3%82%8B
+    muteMedia() {
+      if (this.stream) {
+        this.stream?.getVideoTracks()?.forEach(track => track.enabled = !this.mute.local.video);
+        this.stream?.getAudioTracks()?.forEach(track => track.enabled = !this.mute.local.audio);
+      }
+      if (this.remoteStream) {
+        this.remoteStream?.getVideoTracks()?.forEach(track => track.enabled = !this.mute.remote.video);
+        this.remoteStream?.getAudioTracks()?.forEach(track => track.enabled = !this.mute.remote.audio);
+      }
     },
     sendMessage() {
       if (!this.dataConnection || !this.message) {
