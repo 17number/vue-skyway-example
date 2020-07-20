@@ -14,7 +14,39 @@
     </div>
     <div id="me">
       <h3>Source (You)</h3>
-      <video id="my-video" width="400px" autoplay muted playsinline></video>
+      <video
+        id="my-video"
+        width="400px"
+        autoplay
+        muted
+        playsinline
+        :srcObject.prop="stream"
+        v-if="stream"
+      />
+      <!-- 接続オプション -->
+      <div>
+        <label>Video</label>
+        <select v-model="selectedVideo" @change="resetVideo" v-if="videos.length > 0">
+          <option :value="null" selected>なし</option>
+          <option :value="video.deviceId" v-for="(video, i) in videos" :key="i">{{ video.label }}</option>
+        </select>
+      </div>
+      <div>
+        <label>Audio</label>
+        <select v-model="selectedAudio" @change="resetVideo" v-if="audios.length > 0">
+          <option :value="null" selected>なし</option>
+          <option :value="audio.deviceId" v-for="(audio, i) in audios" :key="i">{{ audio.label }}</option>
+        </select>
+      </div>
+      <!-- ミュート -->
+      <div>
+        <div>
+          <label><input type="checkbox" v-model="mute.local.video" @change="muteMedia">Video を Off</label>
+        </div>
+        <div>
+          <label><input type="checkbox" v-model="mute.local.audio" @change="muteMedia">Audio を Off</label>
+        </div>
+      </div>
     </div>
     <div id="room">
       <div>
@@ -24,17 +56,28 @@
         <button id="close" @click="close" v-if="room">切断</button>
       </div>
       <h3>Room members</h3>
-      <template v-for="stream in remoteStreams">
-        <video
-          width="400px"
-          autoplay
-          playsinline
-          :srcObject.prop="stream.stream"
-          :data="{ peerId: stream.peerId }"
-          :key="stream.peerId"
-          data-remote-video
-          v-if="peer.id !== stream.peerId"
-        />
+      <template v-for="(stream, i) in remoteStreams">
+        <div :key="i">
+          <video
+            width="400px"
+            autoplay
+            playsinline
+            :srcObject.prop="stream.stream"
+            :data="{ peerId: stream.peerId }"
+            :key="stream.peerId"
+            data-remote-video
+            v-if="peer.id !== stream.peerId"
+          />
+          <!-- ミュート -->
+          <div>
+            <div>
+              <label><input type="checkbox" v-model="mute.remotes[stream.peerId].video" @change="muteMedia">Video を Off</label>
+            </div>
+            <div>
+              <label><input type="checkbox" v-model="mute.remotes[stream.peerId].audio" @change="muteMedia">Audio を Off</label>
+            </div>
+          </div>
+        </div>
       </template>
       <h4>Messages</h4>
       <div>
@@ -61,13 +104,26 @@ export default {
     return {
       mode: 'mesh',
       peer: null,
+      videos: [],
+      audios: [],
+      selectedVideo: null,
+      selectedAudio: null,
       stream: null,
       roomName: null,
       room: null,
       remoteStreams: [],
+      mute: {
+        local: { video: false, audio: false },
+        remotes: {},
+      },
       message: null,
       messages: [`${new Date()}: Initialized`],
     };
+  },
+  async created() {
+    const devices = await navigator?.mediaDevices?.enumerateDevices() || [];
+    this.videos = devices.filter(device => device.kind === 'videoinput');
+    this.audios = devices.filter(device => device.kind === 'audioinput');
   },
   mounted() {
     this.initVideo();
@@ -75,23 +131,31 @@ export default {
   },
   methods: {
     async initVideo() {
+      const constraints = {
+        video: this.selectedVideo ? { deviceId: { exact: this.selectedVideo } } : false,
+        audio: this.selectedAudio ? { deviceId: { exact: this.selectedAudio } } : false,
+      };
       try {
-        this.stream = await navigator?.mediaDevices?.getUserMedia({video: true, audio: true})
+        this.stream = await navigator?.mediaDevices?.getUserMedia(constraints);
       } catch (error) {
         console.error('mediaDevice.getUserMedia() error:', error);
-        alert('ビデオの初期化に失敗しました。');
+        this.stream = null;
         return;
       }
 
       if (!this.stream) {
         console.error('mediaDevice.getUserMedia() failed:');
-        alert('ビデオの初期化に失敗しました。');
         return;
       }
-
-      const videoElm = document.getElementById('my-video')
-      videoElm.srcObject = this.stream;
-      videoElm.play();
+    },
+    async resetVideo() {
+      if (this.room) {
+        await this.initVideo();
+        this.replaceStream();
+      } else {
+        this.close();
+        this.initVideo();
+      }
     },
     initPeer() {
       this.peer = new Peer({
@@ -166,6 +230,7 @@ export default {
     },
     async onStreamRecv(stream) {
       this.remoteStreams.push({ peerId: stream.peerId, stream });
+      this.mute.remotes[stream.peerId] = { video: false, audio: false };
     },
     onDataRecv({ data, src }) {
       this.appendMessage(`${data} (${src})`);
@@ -175,6 +240,7 @@ export default {
       const remoteVideo = document.querySelector(`video[data-peer-id="${peerId}"]`)
       remoteVideo?.srcObject?.getTracks()?.forEach(track => track.stop());
       this.remoteStreams = this.remoteStreams.filter(stream => stream.peerId !== peerId);
+      delete this.mute.remotes[peerId];
 
       this.appendMessage(`${peerId} left from ${this.roomName}`);
     },
@@ -186,6 +252,7 @@ export default {
         remoteVideo.srcObject.getTracks().forEach(track => track.stop());
       });
       this.remoteStreams = [];
+      this.mute.remotes = {};
 
       // 部屋を削除
       this.room = null;
@@ -211,6 +278,22 @@ export default {
     appendMessage(message) {
       this.messages.unshift(`${new Date()}: ${message}`);
       this.messages = this.messages.slice(0, 50);  // 最大50件
+    },
+    replaceStream() {
+      // Mesh: https://webrtc.ecl.ntt.com/api-reference/javascript.html#replacestream-stream-2
+      // SFU: https://webrtc.ecl.ntt.com/api-reference/javascript.html#replacestream-stream-3
+      this.room?.replaceStream(this.stream);
+    },
+    // https://webrtc.ecl.ntt.com/api-reference/javascript.html#mediastream%E3%82%92%E3%83%9F%E3%83%A5%E3%83%BC%E3%83%88%E3%81%99%E3%82%8B
+    muteMedia() {
+      if (this.stream) {
+        this.stream?.getVideoTracks()?.forEach(track => track.enabled = !this.mute.local.video);
+        this.stream?.getAudioTracks()?.forEach(track => track.enabled = !this.mute.local.audio);
+      }
+      this.remoteStreams.forEach(stream => {
+        stream?.stream?.getVideoTracks()?.forEach(track => track.enabled = !this.mute.remotes[stream.peerId].video);
+        stream?.stream?.getAudioTracks()?.forEach(track => track.enabled = !this.mute.remotes[stream.peerId].audio);
+      });
     },
   },
 }
