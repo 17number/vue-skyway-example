@@ -37,7 +37,7 @@
         <input type="text" id="dest-id" v-model="destId">
       </div>
       <div>
-        <button id="make-call" @click="call" v-if="!mediaConnection">発信</button>
+        <button id="make-call" @click="callAndConnect" v-if="!mediaConnection">発信</button>
         <button id="close" @click="close" v-if="mediaConnection">切断</button>
       </div>
       <h3>Destination</h3>
@@ -49,6 +49,18 @@
         :srcObject.prop="remoteStream"
         v-if="remoteStream"
       />
+    </div>
+    <div id="messages">
+      <div v-if="dataConnection">
+        <label>Message</label>
+        <input type="text" v-model="message">
+        <button @click="sendMessage">送信</button>
+      </div>
+      <pre>
+        <template v-for="msg in messages">
+          {{ msg }}
+        </template>
+      </pre>
     </div>
   </div>
 </template>
@@ -72,6 +84,9 @@ export default {
       srcId: null,
       destId: null,
       mediaConnection: null,
+      dataConnection: null,
+      message: '',
+      messages: [],
     };
   },
   async created() {
@@ -132,11 +147,21 @@ export default {
 
       // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-call
       this.peer.on('call', mediaConnection => {
-        console.log({ msg: '着信' });
+        console.log({ msg: '着信', mediaConnection });
         // https://webrtc.ecl.ntt.com/api-reference/javascript.html#answer-stream-options
         this.mediaConnection = mediaConnection;
         this.mediaConnection.answer(this.stream);
-        this.setEventListener(this.mediaConnection);
+        this.setEventListenerToMediaConnection();
+        this.destId = mediaConnection.remoteId;
+      });
+
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-call
+      this.peer.on('connection', dataConnection => {
+        console.log({ msg: '接続', dataConnection });
+        // https://webrtc.ecl.ntt.com/api-reference/javascript.html#answer-stream-options
+        this.dataConnection = dataConnection;
+        this.setEventListenerToDataConnection();
+        this.destId = dataConnection.remoteId;
       });
 
       // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-error
@@ -152,17 +177,31 @@ export default {
         alert('通信が切断しました。');
       });
     },
-    call() {
+    callAndConnect() {
       if (!this.destId || !this.peer?.open) {
         return;
       }
 
       console.log({ msg: '発信' });
+      // MediaConnection(動画/音声) の確立
       // https://webrtc.ecl.ntt.com/api-reference/javascript.html#call-peerid-stream-options
       this.mediaConnection = this.peer.call(this.destId, this.stream);
-      this.setEventListener(this.mediaConnection);
+      this.setEventListenerToMediaConnection();
+
+      // DataConnection(テキストメッセージなど) の確立
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#connect-peerid-options
+      this.dataConnection = this.peer.connect(this.destId);
+      this.setEventListenerToDataConnection();
     },
-    setEventListener() {
+    sendMessage() {
+      if (!this.dataConnection || !this.message) {
+        return;
+      }
+
+      this.dataConnection.send(this.message);
+      this.messages.push(`${new Date()}: ${this.message} from ${this.peer.id}`);
+    },
+    setEventListenerToMediaConnection() {
       const videoElm = document.getElementById('dest-video')
       // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-stream
       this.mediaConnection.on('stream', stream => {
@@ -181,11 +220,35 @@ export default {
         this.remoteStream = null;
       });
     },
+    setEventListenerToDataConnection() {
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-open-2
+      this.dataConnection.on('open', () => {
+        console.log({ on: 'data connection opened' });
+      });
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-data
+      this.dataConnection.on('data', data => {
+        console.log({ on: 'data received', data });
+        this.messages.push(`${new Date()}: ${data} from ${this.destId}`);
+      });
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-close-3
+      this.dataConnection.on('close', () => {
+        console.log({ on: 'data connection closed' });
+        this.dataConnection = null;
+      });
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#event-error-2
+      this.dataConnection.on('error', () => {
+        console.log({ on: 'error on data connection' });
+      });
+    },
     close() {
       // https://webrtc.ecl.ntt.com/api-reference/javascript.html#close-forceclose
       this.mediaConnection?.close(true);
       this.mediaConnection = null;
       this.remoteStream = null;
+
+      // https://webrtc.ecl.ntt.com/api-reference/javascript.html#close-forceclose-2
+      this.dataConnection?.close(true);
+      this.dataConnection = null;
     },
   },
 }
